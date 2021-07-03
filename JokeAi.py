@@ -5,9 +5,6 @@ import numpy as np
 import keras
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
-from keras import layers
-from keras.models import Sequential
-import keras.utils as ku
 
 data = pd.read_json("reddit_jokes.json")
 print(data.shape)
@@ -27,15 +24,14 @@ for i in range(len(body) - 1, -1, -1):
     if (len(body[i].split(' ')) > 10 or len(title[i].split(' ')) > 10):
         del body[i]
         del title[i]
-# Considering only top 3000 title
-print(len(title))
-title_filt = title[:3000]
+# amount of titles
+title_filt = title[:300]
 all_title = list(title_filt)
 all_title[:2]
 
 
-# Considering only top 3000 bodys
-body_filt = body[:3000]
+# amount of bodys, should be same as title
+body_filt = body[:300]
 all_body = list(body_filt)
 all_body[:2]
 print( max([len(i.split(' ')) for i in all_body]))
@@ -47,68 +43,33 @@ def prep_data(data_features, data_labels):
     tokenizer.fit_on_texts(data_labels)
     total_words = len(tokenizer.word_index) + 1
     print(f"Total unique words in the text corpus: {total_words}")
-    tokenized_data = []
     label_max = max([len(i.split(' ')) for i in data_labels])
     features_max = max([len(i.split(' ')) for i in data_features])
-    for x in range(len(data_features)):
-            print(x)
-            seq = tokenizer.texts_to_sequences([data_labels[x]])[0]
-            for i in range(1, len(seq)):
-                ngram_seq = seq[:i]
-                array = (pad_sequences([tokenizer.texts_to_sequences([data_features[x]])[0]], maxlen=features_max, padding="pre"))
-                array = np.append(array, pad_sequences([ngram_seq], maxlen=label_max+1)[0])
-                tokenized_data.append(array.tolist())
-    return  tokenized_data, total_words, label_max, features_max
-tokenized_data, total_words, label_max, features_max = prep_data(all_title, all_body)
+    return label_max, features_max
+label_max, features_max = prep_data(all_title, all_body)
 print("tokenized done")
 print(f"data length:{label_max, features_max}")
-# Generating predictors and labels from the padded sequences
-def generate_input_sequence(input_sequences):
-    maxlen = max([len(x) for x in input_sequences])
-    predictors, label = [item[:-1] for item in input_sequences], [item[-1] for item in input_sequences]
-    label = ku.to_categorical(label, num_classes=total_words)
-    return predictors, label, maxlen
 
-predictors, label, maxlen = generate_input_sequence(tokenized_data)
-print("data loading done")
-predictors, label = np.array(predictors), np.array(label)
 
-# Building the model
-embedding_dim = 64
 
-def create_model(maxlen, embedding_dim, total_words):
-    model = Sequential()
-    model.add(layers.Embedding(total_words, embedding_dim, input_length = maxlen - 1))
-    model.add(layers.LSTM(128, dropout=0.2))
-    model.add(layers.Dense(total_words, activation='softmax'))
-    
-    # compiling the model
-    model.compile(loss='categorical_crossentropy', optimizer='adam')
-    return model
-
-model = create_model(maxlen, embedding_dim, total_words)
-model.summary()
-
-# Training the model
-model.fit(predictors, label, epochs=5000, batch_size=64)
-# Save the model for later use
-model.save("title_generator_test_super_over_fit.h5")
-
+from keras.models import load_model
+#the model you wanna use
+Quotes_gen = load_model("title_generator_test_extra_over_fit.h5")
 # Text generating function
-def generate_quote(seed_text, num_words, model, maxlen):
-    
+def generate_quote(title, num_words, model, title_max, body_max):
+    body = ""
     for _ in range(num_words):
-        tokens = tokenizer.texts_to_sequences([seed_text])[0]
-        tokens = pad_sequences([tokens], maxlen=maxlen, padding='pre')
-        
-        predicted = model.predict_classes(tokens)
-        
+        tokens = (pad_sequences([tokenizer.texts_to_sequences([title])[0]], maxlen=title_max, padding="pre"))
+        tokens = np.array([np.append(tokens, pad_sequences([tokenizer.texts_to_sequences([body])[0]], maxlen=body_max)[0])])
+        predicted = np.argmax(model.predict(tokens), axis=-1)
         output_word = ''
-        
         for word, index in tokenizer.word_index.items():
             if index == predicted:
                 output_word = word
                 break
-        seed_text = seed_text + " " + output_word
-    
-    return seed_text
+        body = body + " " + output_word
+    return title + "\n" + body
+
+#write the joke title in the quote
+print(generate_quote("", num_words = 10, model= Quotes_gen, title_max=features_max, body_max=label_max))
+
